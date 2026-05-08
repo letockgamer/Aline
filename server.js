@@ -1,9 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// Servir arquivos estáticos (index.html, pasta /img, etc)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ========== CONFIGURAÇÕES ==========
 // Cole aqui suas chaves da SyncPay
@@ -49,7 +53,7 @@ app.post('/criar-pix', async (req, res) => {
         pix: {
           expiresInDays: 1
         },
-        postbackUrl: `https://SEU-BACKEND.up.railway.app/webhook`
+        postbackUrl: `https://aline-production.up.railway.app/webhook`
       })
     });
 
