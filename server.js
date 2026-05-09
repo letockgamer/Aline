@@ -3,93 +3,83 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-app.use(express.json());
 app.use(cors());
-
-// Servir arquivos estáticos (index.html, pasta /img, etc)
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ========== CONFIGURAÇÕES ==========
-// Cole aqui suas chaves da SyncPay
-const SYNCPAY_API_KEYS = [
-  'f981adad-8afa-4a7c-bbf9-3896e886f262',
-  'f04a8fb0-2ad9-4911-91e0-b79e3b08779a'
-];
+const CLIENT_ID     = 'f11da241-3e4b-40a6-b365-b8660080fe70';
+const CLIENT_SECRET = '4723fbf4-a28a-4366-b894-77890e18c71f';
+const BASE_URL      = 'https://api.syncpayments.com.br';
 
-// Use a primeira chave como principal (ajuste conforme documentação deles)
-const SYNCPAY_API_KEY = SYNCPAY_API_KEYS[0];
-const SYNCPAY_BASE_URL = 'https://api.syncpay.pro/v1'; // confirmar URL na doc deles
+let cachedToken = null;
+let tokenExpiry = 0;
 
-// ========== ROTA CRIAR PIX ==========
-app.post('/criar-pix', async (req, res) => {
-  const { nome, email, cpf, valor, plano } = req.body;
+async function getToken() {
+    if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
 
-  if (!nome || !email || !cpf || !valor) {
-    return res.status(400).json({ error: 'Dados incompletos' });
-  }
-
-  try {
-    const response = await fetch(`${SYNCPAY_BASE_URL}/transactions/pix`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SYNCPAY_API_KEY}`
-      },
-      body: JSON.stringify({
-        amount: valor, // em centavos (ex: 1388 = R$13,88)
-        customer: {
-          name: nome,
-          email: email,
-          cpf: cpf
-        },
-        items: [
-          {
-            title: plano,
-            quantity: 1,
-            unitPrice: valor,
-            tangible: false
-          }
-        ],
-        pix: {
-          expiresInDays: 1
-        },
-        postbackUrl: `https://aline-production.up.railway.app/webhook`
-      })
+    const res = await fetch(`${BASE_URL}/api/partner/v1/auth-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
     });
 
-    const data = await response.json();
+    const data = await res.json();
+    console.log('Auth response:', JSON.stringify(data));
 
-    // Retorna o código PIX para o frontend
-    // (ajustar campo conforme resposta real da API SyncPay)
-    if (data.pix && data.pix.qrcode) {
-      return res.json({ pixCode: data.pix.qrcode });
-    } else if (data.pixCode) {
-      return res.json({ pixCode: data.pixCode });
-    } else {
-      console.error('Resposta SyncPay:', JSON.stringify(data));
-      return res.status(500).json({ error: 'Erro ao gerar PIX', detalhes: data });
+    if (!data.access_token) throw new Error('Falha ao obter token: ' + JSON.stringify(data));
+
+    cachedToken = data.access_token;
+    tokenExpiry = Date.now() + (55 * 60 * 1000);
+    return cachedToken;
+}
+
+app.get('/status', (req, res) => {
+    res.json({ status: 'ok', message: 'Backend SyncPay rodando!' });
+});
+
+app.post('/criar-pix', async (req, res) => {
+    const { valor, plano, nome, cpf, email, telefone } = req.body;
+
+    if (!valor || !nome || !cpf || !email || !telefone) {
+        return res.status(400).json({ error: 'Campos obrigatórios faltando' });
     }
 
-  } catch (err) {
-    console.error('Erro:', err);
-    return res.status(500).json({ error: 'Erro interno' });
-  }
+    try {
+        const token = await getToken();
+
+        const response = await fetch(`${BASE_URL}/api/partner/v1/cash-in`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                amount: valor,
+                description: plano || 'Assinatura',
+                client: {
+                    name: nome,
+                    cpf: cpf.replace(/\D/g, ''),
+                    email: email,
+                    phone: telefone.replace(/\D/g, '')
+                }
+            })
+        });
+
+        const data = await response.json();
+        console.log('CashIn response:', JSON.stringify(data));
+
+        if (data.pix_code) {
+            return res.json({ pixCode: data.pix_code, identifier: data.identifier });
+        } else {
+            return res.status(500).json({ error: 'PIX não gerado', raw: data });
+        }
+
+    } catch (err) {
+        console.error('Erro:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
 });
 
-// ========== WEBHOOK ==========
-app.post('/webhook', (req, res) => {
-  const payload = req.body;
-  console.log('Webhook recebido:', JSON.stringify(payload));
-  // Aqui você pode processar a confirmação de pagamento
-  res.sendStatus(200);
-});
-
-// ========== HEALTH CHECK ==========
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Backend SyncPay rodando!' });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
