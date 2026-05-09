@@ -620,6 +620,11 @@
         }
 
         #countdown { font-weight: 600; }
+
+        .form-group { margin-bottom: 10px; }
+        .form-label { display: block; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 4px; }
+        .form-input { width: 100%; padding: 11px 14px; border: 1px solid #e5e5e5; border-radius: 10px; font-size: 15px; font-family: 'Inter', sans-serif; color: #000; outline: none; transition: border-color 0.2s; }
+        .form-input:focus { border-color: #e89c30; }
     </style>
 </head>
 <body>
@@ -867,7 +872,7 @@
             <div class="modal-value-plan" id="modal-plan">1 Mês (26% off)</div>
         </div>
 
-        <!-- Benefícios + botão PIX -->
+        <!-- Benefícios + formulário + botão PIX -->
         <div id="payment-form">
             <div class="modal-benefits">
                 <div class="modal-benefits-title">Benefícios exclusivos</div>
@@ -875,7 +880,23 @@
                 <div class="benefit-item"><span class="benefit-check">✓</span> Chat privado e pedidos personalizados</div>
                 <div class="benefit-item"><span class="benefit-check">✓</span> Liberação VIP automática após a aprovação</div>
             </div>
-            <div class="modal-payment-title">Formas de pagamento</div>
+            <div class="modal-payment-title">Seus dados</div>
+            <div class="form-group">
+                <label class="form-label">Nome completo</label>
+                <input type="text" class="form-input" id="input-nome" placeholder="Seu nome completo">
+            </div>
+            <div class="form-group">
+                <label class="form-label">CPF</label>
+                <input type="text" class="form-input" id="input-cpf" placeholder="000.000.000-00" maxlength="14">
+            </div>
+            <div class="form-group">
+                <label class="form-label">E-mail</label>
+                <input type="email" class="form-input" id="input-email" placeholder="seu@email.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Telefone (com DDD)</label>
+                <input type="text" class="form-input" id="input-telefone" placeholder="(11) 99999-9999" maxlength="15">
+            </div>
             <button class="btn-pix" id="btn-gerar-pix" onclick="gerarPix()">
                 ✓ PIX Instantâneo
             </button>
@@ -932,8 +953,34 @@
         if (e.target === document.getElementById('modal-overlay')) closeModal();
     }
 
+    // Máscaras
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('input-cpf').addEventListener('input', function(e) {
+            let v = e.target.value.replace(/\D/g, '').slice(0, 11);
+            v = v.replace(/(\d{3})(\d)/, '$1.$2');
+            v = v.replace(/(\d{3})(\d)/, '$1.$2');
+            v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+            e.target.value = v;
+        });
+        document.getElementById('input-telefone').addEventListener('input', function(e) {
+            let v = e.target.value.replace(/\D/g, '').slice(0, 11);
+            v = v.replace(/(\d{2})(\d)/, '($1) $2');
+            v = v.replace(/(\d{5})(\d)/, '$1-$2');
+            e.target.value = v;
+        });
+    });
+
     async function gerarPix() {
-        // Esconde o form, mostra loading
+        const nome     = document.getElementById('input-nome').value.trim();
+        const cpf      = document.getElementById('input-cpf').value.trim();
+        const email    = document.getElementById('input-email').value.trim();
+        const telefone = document.getElementById('input-telefone').value.trim();
+
+        if (!nome || cpf.replace(/\D/g,'').length < 11 || !email || telefone.replace(/\D/g,'').length < 10) {
+            alert('Preencha todos os campos corretamente.');
+            return;
+        }
+
         document.getElementById('payment-form').style.display = 'none';
         document.getElementById('pix-loading').classList.add('show');
 
@@ -944,8 +991,9 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    valor: plano.valor,
-                    plano: plano.label
+                    valor: plano.valor / 100,  // converte centavos para reais
+                    plano: plano.label,
+                    nome, cpf, email, telefone
                 })
             });
 
