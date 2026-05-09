@@ -24,9 +24,9 @@ async function getToken() {
     });
 
     const data = await res.json();
-    console.log('Auth response:', JSON.stringify(data));
+    process.stdout.write('Auth response: ' + JSON.stringify(data) + '\n');
 
-    if (!data.access_token) throw new Error('Falha ao obter token: ' + JSON.stringify(data));
+    if (!data.access_token) throw new Error('Token falhou: ' + JSON.stringify(data));
 
     cachedToken = data.access_token;
     tokenExpiry = Date.now() + (55 * 60 * 1000);
@@ -37,8 +37,20 @@ app.get('/status', (req, res) => {
     res.json({ status: 'ok', message: 'Backend SyncPay rodando!' });
 });
 
+// Rota de teste — acesse no navegador para ver se o token funciona
+app.get('/testar-token', async (req, res) => {
+    try {
+        const token = await getToken();
+        res.json({ sucesso: true, token: token.substring(0, 20) + '...' });
+    } catch (err) {
+        res.json({ sucesso: false, erro: err.message });
+    }
+});
+
 app.post('/criar-pix', async (req, res) => {
     const { valor, plano, nome, cpf, email, telefone } = req.body;
+
+    process.stdout.write('Recebido: ' + JSON.stringify({ valor, plano, nome, cpf, email, telefone }) + '\n');
 
     if (!valor || !nome || !cpf || !email || !telefone) {
         return res.status(400).json({ error: 'Campos obrigatórios faltando' });
@@ -47,6 +59,19 @@ app.post('/criar-pix', async (req, res) => {
     try {
         const token = await getToken();
 
+        const payload = {
+            amount: valor,
+            description: plano || 'Assinatura',
+            client: {
+                name: nome,
+                cpf: cpf.replace(/\D/g, ''),
+                email: email,
+                phone: telefone.replace(/\D/g, '')
+            }
+        };
+
+        process.stdout.write('Enviando para SyncPay: ' + JSON.stringify(payload) + '\n');
+
         const response = await fetch(`${BASE_URL}/api/partner/v1/cash-in`, {
             method: 'POST',
             headers: {
@@ -54,20 +79,11 @@ app.post('/criar-pix', async (req, res) => {
                 'Accept': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                amount: valor,
-                description: plano || 'Assinatura',
-                client: {
-                    name: nome,
-                    cpf: cpf.replace(/\D/g, ''),
-                    email: email,
-                    phone: telefone.replace(/\D/g, '')
-                }
-            })
+            body: JSON.stringify(payload)
         });
 
         const data = await response.json();
-        console.log('CashIn response:', JSON.stringify(data));
+        process.stdout.write('CashIn response: ' + JSON.stringify(data) + '\n');
 
         if (data.pix_code) {
             return res.json({ pixCode: data.pix_code, identifier: data.identifier });
@@ -76,10 +92,10 @@ app.post('/criar-pix', async (req, res) => {
         }
 
     } catch (err) {
-        console.error('Erro:', err.message);
+        process.stdout.write('ERRO: ' + err.message + '\n');
         return res.status(500).json({ error: err.message });
     }
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+app.listen(PORT, () => process.stdout.write('Servidor rodando na porta ' + PORT + '\n'));
