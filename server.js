@@ -7,66 +7,77 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Suas chaves SyncPay
-const SYNCPAY_SECRET_KEY = 'f981adad-8afa-4a7c-bbf9-3896e886f262';
-const SYNCPAY_PUBLIC_KEY = 'f04a8fb0-2ad9-4911-91e0-b79e3b08779a';
+const CLIENT_ID     = 'f11da241-3e4b-40a6-b365-b8660080fe70';
+const CLIENT_SECRET = '4723fbf4-a28a-4366-b894-77890e18c71f';
+const BASE_URL      = 'https://api.syncpayments.com.br';
 
-// Rota de saúde
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getToken() {
+    if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+
+    const res = await fetch(`${BASE_URL}/api/partner/v1/auth-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
+    });
+
+    const data = await res.json();
+    console.log('Auth response:', JSON.stringify(data));
+
+    if (!data.access_token) throw new Error('Falha ao obter token: ' + JSON.stringify(data));
+
+    cachedToken = data.access_token;
+    tokenExpiry = Date.now() + (55 * 60 * 1000);
+    return cachedToken;
+}
 
 app.get('/status', (req, res) => {
     res.json({ status: 'ok', message: 'Backend SyncPay rodando!' });
 });
 
-// Gerar PIX — sem precisar de CPF/nome
 app.post('/criar-pix', async (req, res) => {
-    const { valor, plano } = req.body;
+    const { valor, plano, nome, cpf, email, telefone } = req.body;
 
-    if (!valor) {
-        return res.status(400).json({ error: 'Valor obrigatório' });
+    if (!valor || !nome || !cpf || !email || !telefone) {
+        return res.status(400).json({ error: 'Campos obrigatórios faltando' });
     }
 
     try {
-        const response = await fetch('https://api.syncpay.pro/v1/transactions', {
+        const token = await getToken();
+
+        const response = await fetch(`${BASE_URL}/api/partner/v1/cash-in`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${SYNCPAY_SECRET_KEY}`,
-                'x-api-key': SYNCPAY_SECRET_KEY
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
-                amount: valor,          // valor em centavos (ex: 1388 = R$13,88)
-                payment_method: 'pix',
-                description: plano || 'Assinatura'
+                amount: valor,
+                description: plano || 'Assinatura',
+                client: {
+                    name: nome,
+                    cpf: cpf.replace(/\D/g, ''),
+                    email: email,
+                    phone: telefone.replace(/\D/g, '')
+                }
             })
         });
 
         const data = await response.json();
-        console.log('SyncPay response:', JSON.stringify(data));
+        console.log('CashIn response:', JSON.stringify(data));
 
-        // Tenta pegar o código PIX em diferentes campos possíveis
-        const pixCode =
-            data?.pix_code ||
-            data?.pixCode ||
-            data?.qr_code ||
-            data?.brcode ||
-            data?.data?.pix_code ||
-            data?.data?.qr_code ||
-            data?.transaction?.pix_code ||
-            null;
-
-        if (pixCode) {
-            return res.json({ pixCode });
+        if (data.pix_code) {
+            return res.json({ pixCode: data.pix_code, identifier: data.identifier });
         } else {
-            console.error('PIX code não encontrado na resposta:', data);
             return res.status(500).json({ error: 'PIX não gerado', raw: data });
         }
 
     } catch (err) {
-        console.error('Erro ao chamar SyncPay:', err);
-        return res.status(500).json({ error: 'Erro interno', details: err.message });
+        console.error('Erro:', err.message);
+        return res.status(500).json({ error: err.message });
     }
 });
 
