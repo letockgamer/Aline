@@ -7,8 +7,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const CLIENT_ID     = 'f11da241-3e4b-40a6-b365-b8660080fe70';
-const CLIENT_SECRET = '4723fbf4-a28a-4366-b894-77890e18c71f';
+const CLIENT_ID     = 'a53e2156-5a0b-467a-9515-ae70028bce02';
+const CLIENT_SECRET = '361fe073-0a63-43cf-b3e5-35ece72440f3';
 const BASE_URL      = 'https://api.syncpayments.com.br';
 
 let cachedToken = null;
