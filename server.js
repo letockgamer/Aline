@@ -1,9 +1,10 @@
-// v3
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
+
+const resend = new Resend('re_VbhqVWve_9TovVRqoLYB6eXqD4DtxEX5Y');
 
 const app = express();
 app.use(cors());
@@ -42,19 +43,10 @@ function gerarToken() {
 }
 
 async function enviarEmail(email, nome, accessToken, plano) {
-    // Configure com seu email (Gmail, SendGrid, etc)
-    const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
-        }
-    });
-
     const link = `https://aline-production.up.railway.app/membros?token=${accessToken}`;
 
-    await transporter.sendMail({
-        from: process.env.EMAIL_USER,
+    await resend.emails.send({
+        from: 'Aline Oliveira <onboarding@resend.dev>',
         to: email,
         subject: '🔥 Seu acesso exclusivo está pronto!',
         html: `
