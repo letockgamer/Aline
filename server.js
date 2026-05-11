@@ -85,6 +85,20 @@ app.get('/testar-token', async (req, res) => {
     }
 });
 
+// Rota de teste — simula pagamento aprovado
+app.get('/testar-acesso', async (req, res) => {
+    const { email, nome } = req.query;
+    if (!email || !nome) return res.json({ erro: 'Passe email e nome na URL' });
+    const accessToken = gerarToken();
+    tokens[accessToken] = { nome, email, plano: '1 Mes (teste)', criadoEm: Date.now() };
+    try {
+        await enviarEmail(email, nome, accessToken, '1 Mes (teste)');
+        res.json({ sucesso: true, mensagem: 'Email enviado para ' + email, link: 'https://aline-production.up.railway.app/membros?token=' + accessToken });
+    } catch (err) {
+        res.json({ sucesso: false, erro: err.message, link: 'https://aline-production.up.railway.app/membros?token=' + accessToken });
+    }
+});
+
 // Criar PIX
 app.post('/criar-pix', async (req, res) => {
     const { valor, plano, nome, cpf, email, telefone } = req.body;
