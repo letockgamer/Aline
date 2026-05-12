@@ -9,20 +9,117 @@ const resend = new Resend('re_VbhqVWve_9TovVRqoLYB6eXqD4DtxEX5Y');
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve arquivos estáticos exceto index.html da raiz
+app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
+app.use('/gringo.html', express.static(path.join(__dirname, 'public', 'gringo.html')));
+app.use('/membros', (req, res, next) => next());
 
-// ========== CONFIGURAÇÕES ==========
-// Cole aqui suas chaves da SyncPay
-const SYNCPAY_API_KEYS = [
-  'f981adad-8afa-4a7c-bbf9-3896e886f262',
-  'f04a8fb0-2ad9-4911-91e0-b79e3b08779a'
-];
+const CLIENT_ID     = 'a53e2156-5a0b-467a-9515-ae70028bce02';
+const CLIENT_SECRET = '361fe073-0a63-43cf-b3e5-35ece72440f3';
+const BASE_URL      = 'https://api.syncpayments.com.br';
 
-// Use a primeira chave como principal (ajuste conforme documentação deles)
-const SYNCPAY_API_KEY = SYNCPAY_API_KEYS[0];
-const SYNCPAY_BASE_URL = 'https://api.syncpay.pro/v1'; // confirmar URL na doc deles
+// ID da pasta do Google Drive
+const DRIVE_FOLDER_ID = '1PFcvnySsdlwkzSy_RSXUBk3DSVp3Rkdn';
 
-// ========== ROTA CRIAR PIX ==========
+// Banco de tokens em memória (use Redis/DB em produção)
+const tokens = {};
+
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getToken() {
+    if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+    const res = await fetch(`${BASE_URL}/api/partner/v1/auth-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
+    });
+    const data = await res.json();
+    if (!data.access_token) throw new Error('Token falhou: ' + JSON.stringify(data));
+    cachedToken = data.access_token;
+    tokenExpiry = Date.now() + (55 * 60 * 1000);
+    return cachedToken;
+}
+
+function gerarToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+async function enviarEmail(email, nome, accessToken, plano) {
+    const link = `https://aline-production.up.railway.app/membros?token=${accessToken}`;
+
+    await resend.emails.send({
+        from: 'Aline Oliveira <onboarding@resend.dev>',
+        to: email,
+        subject: '🔥 Seu acesso exclusivo está pronto!',
+        html: `
+            <div style="font-family: Inter, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+                <h2 style="color: #e89c30;">Olá, ${nome}! 🔥</h2>
+                <p>Seu pagamento foi confirmado! Clique no botão abaixo para acessar o conteúdo exclusivo:</p>
+                <a href="${link}" style="display: inline-block; background: linear-gradient(90deg, #e89c30, #f5bc6a); color: #000; font-weight: 700; padding: 14px 28px; border-radius: 12px; text-decoration: none; margin: 16px 0;">
+                    Acessar conteúdo exclusivo 🔓
+                </a>
+                <p style="color: #888; font-size: 13px;">Plano: ${plano}</p>
+                <p style="color: #888; font-size: 13px;">Este link é pessoal e intransferível.</p>
+            </div>
+        `
+    });
+}
+
+// Status
+app.get('/status', (req, res) => {
+    res.json({ status: 'ok', message: 'Backend SyncPay rodando!' });
+});
+
+// Rota principal — detecta país e serve a página certa
+app.get('/', async (req, res) => {
+    try {
+        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
+        const cleanIp = ip.split(',')[0].trim();
+        
+        // Ignora IPs locais
+        if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp.startsWith('192.168')) {
+            return res.sendFile(require('path').join(__dirname, 'public', 'index.html'));
+        }
+
+        const geoRes = await fetch(`https://ipapi.co/${cleanIp}/country/`);
+        const country = await geoRes.text();
+
+        if (country.trim() === 'BR') {
+            res.sendFile(require('path').join(__dirname, 'public', 'index.html'));
+        } else {
+            res.sendFile(require('path').join(__dirname, 'public', 'gringo.html'));
+        }
+    } catch (err) {
+        res.sendFile(require('path').join(__dirname, 'public', 'index.html'));
+    }
+});
+
+// Teste token
+app.get('/testar-token', async (req, res) => {
+    try {
+        const token = await getToken();
+        res.json({ sucesso: true, token: token.substring(0, 20) + '...' });
+    } catch (err) {
+        res.json({ sucesso: false, erro: err.message });
+    }
+});
+
+// Rota de teste — simula pagamento aprovado
+app.get('/testar-acesso', async (req, res) => {
+    const { email, nome } = req.query;
+    if (!email || !nome) return res.json({ erro: 'Passe email e nome na URL' });
+    const accessToken = gerarToken();
+    tokens[accessToken] = { nome, email, plano: '1 Mes (teste)', criadoEm: Date.now() };
+    try {
+        await enviarEmail(email, nome, accessToken, '1 Mes (teste)');
+        res.json({ sucesso: true, mensagem: 'Email enviado para ' + email, link: 'https://aline-production.up.railway.app/membros?token=' + accessToken });
+    } catch (err) {
+        res.json({ sucesso: false, erro: err.message, link: 'https://aline-production.up.railway.app/membros?token=' + accessToken });
+    }
+});
+
+// Criar PIX
 app.post('/criar-pix', async (req, res) => {
     const { valor, plano, nome, cpf, email, telefone } = req.body;
     if (!valor || !nome || !cpf || !email || !telefone) {
