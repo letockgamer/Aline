@@ -9,10 +9,8 @@ const resend = new Resend('re_VbhqVWve_9TovVRqoLYB6eXqD4DtxEX5Y');
 const app = express();
 app.use(cors());
 app.use(express.json());
-// Serve arquivos estáticos exceto index.html da raiz
-app.use('/img', express.static(path.join(__dirname, 'public', 'img')));
-app.use('/gringo.html', express.static(path.join(__dirname, 'public', 'gringo.html')));
-app.use('/membros', (req, res, next) => next());
+// Serve arquivos estáticos (imagens, css, etc) mas não index.html automaticamente
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 const CLIENT_ID     = 'a53e2156-5a0b-467a-9515-ae70028bce02';
 const CLIENT_SECRET = '361fe073-0a63-43cf-b3e5-35ece72440f3';
